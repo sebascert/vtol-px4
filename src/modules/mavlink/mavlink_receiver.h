@@ -113,6 +113,7 @@
 #include <uORB/topics/velocity_limits.h>
 
 #if !defined(CONSTRAINED_FLASH)
+# include <uORB/topics/pso_allocation.h>
 # include <uORB/topics/debug_array.h>
 # include <uORB/topics/debug_key_value.h>
 # include <uORB/topics/debug_value.h>
@@ -330,6 +331,7 @@ private:
 	uORB::Publication<vehicle_rates_setpoint_s>		_rates_sp_pub{ORB_ID(vehicle_rates_setpoint)};
 
 #if !defined(CONSTRAINED_FLASH)
+	uORB::Publication<pso_allocation_s>			_pso_allocation_pub{ORB_ID(pso_allocation)};
 	uORB::Publication<debug_array_s>			_debug_array_pub {ORB_ID(debug_array)};
 	uORB::Publication<debug_key_value_s>			_debug_key_value_pub{ORB_ID(debug_key_value)};
 	uORB::Publication<debug_value_s>			_debug_value_pub{ORB_ID(debug_value)};

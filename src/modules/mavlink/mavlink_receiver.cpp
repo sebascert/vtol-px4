@@ -60,6 +60,7 @@
 #include "mavlink_command_sender.h"
 #include "mavlink_main.h"
 #include "mavlink_receiver.h"
+#include "pso_allocation.hpp"
 
 #include <lib/drivers/device/Device.hpp> // For DeviceId union
 #include <containers/LockGuard.hpp>
@@ -2829,6 +2830,24 @@ MavlinkReceiver::handle_message_debug_float_array(mavlink_message_t *msg)
 	}
 
 	_debug_array_pub.publish(debug_topic);
+
+	if (vtol_pso::valid_allocation(*msg, debug_msg)) {
+		pso_allocation_s allocation{};
+		allocation.timestamp = debug_topic.timestamp;
+		allocation.timestamp_remote = debug_msg.time_usec;
+
+		for (unsigned i = 0; i < 9; ++i) {
+			allocation.actuators[i] = debug_msg.data[i];
+		}
+
+		allocation.fitness = debug_msg.data[9];
+		allocation.position_error_m = debug_msg.data[10];
+		allocation.position_converged = debug_msg.data[11] > 0.f;
+		allocation.objective_evaluations = static_cast<uint32_t>(debug_msg.data[12]);
+		allocation.source_system = msg->sysid;
+		allocation.source_component = msg->compid;
+		_pso_allocation_pub.publish(allocation);
+	}
 }
 #endif // !CONSTRAINED_FLASH
 
