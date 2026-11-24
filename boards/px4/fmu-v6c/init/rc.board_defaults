@@ -10,7 +10,7 @@ param set-default BAT2_V_DIV 18.1
 param set-default BAT1_A_PER_V 36.367515152
 param set-default BAT2_A_PER_V 36.367515152
 
-# Keep only the Pi's three-wire TELEM2 link and the separately started USB link.
+# Keep only the companion's three-wire TELEM2 link and the separately started USB link.
 param set MAV_0_CONFIG 0
 param set MAV_2_CONFIG 0
 param set MAV_1_CONFIG 102

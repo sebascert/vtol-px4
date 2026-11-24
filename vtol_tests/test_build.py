@@ -1,8 +1,10 @@
 """Check build target selection and failure handling without installing tools."""
 import os
+import json
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
@@ -17,11 +19,18 @@ class BuildTest(unittest.TestCase):
         self.project = self.work / "controller"
         self.project.mkdir()
         shutil.copy2(ROOT / "build.sh", self.project / "build.sh")
+        for name in ("vehicle_config.py", "vehicle.schema.json"):
+            shutil.copy2(ROOT / name, self.project / name)
+        self.vehicle = self.work / "selected vehicle.json"
+        data = json.loads((ROOT.parent / "config/vehicle.json").read_text())
+        data["metadata"]["revision"] = "selected-by-user"
+        self.vehicle.write_text(json.dumps(data))
         self.bin = self.work / "bin"
         self.bin.mkdir()
         self.log = self.work / "commands.log"
         self.env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
                         BUILD_TEST_LOG=str(self.log), BUILD_TEST_BIN=str(self.bin),
+                        BUILD_TEST_PYTHON=sys.executable,
                         BUILD_TEST_PIP_FAIL="0", BUILD_TEST_CONFIG_FAIL="0")
         commands = {
             "python3": '''#!/usr/bin/env bash
@@ -29,8 +38,10 @@ printf 'python %s\\n' "$*" >> "$BUILD_TEST_LOG"
 if [[ $1 == -m && $2 == venv ]]; then
     mkdir -p "$3/bin"
     cp "$BUILD_TEST_BIN/python3" "$3/bin/python3"
-else
+elif [[ $1 == -m && $2 == pip ]]; then
     exit "$BUILD_TEST_PIP_FAIL"
+else
+    exec "$BUILD_TEST_PYTHON" "$@"
 fi
 ''',
             "cmake": '''#!/usr/bin/env bash
@@ -48,30 +59,67 @@ if [[ $1 == -S ]]; then exit "$BUILD_TEST_CONFIG_FAIL"; fi
                               cwd=self.work, env=self.env, capture_output=True, text=True)
 
     def test_targets_and_project_local_paths(self):
-        for args, target, directory in [((), "px4_sitl_vtol", "sitl"),
+        for args, target, directory in [(("sitl",), "px4_sitl_vtol", "sitl"),
                                          (("firmware",), "px4_fmu-v6c_default", "firmware")]:
             with self.subTest(target=target):
                 self.log.write_text("")
-                self.assertEqual(self.run_build(*args).returncode, 0)
+                result = self.run_build(*args, "--vehicle-config", str(self.vehicle), "-DEXAMPLE=ON")
+                self.assertEqual(result.returncode, 0, result.stderr)
                 log = self.log.read_text()
                 self.assertIn(f"-r {self.project}/requirements.txt", log)
                 self.assertIn(f"-DCONFIG={target}", log)
                 self.assertIn(f"--build {self.project}/build/{directory}", log)
+                self.assertIn("-DEXAMPLE=ON", log)
+                snapshot = self.project / f"build/{directory}/vehicle.json"
+                self.assertEqual(json.loads(snapshot.read_text())["metadata"]["revision"], "selected-by-user")
+                self.assertTrue(snapshot.with_suffix(".sha256").is_file())
                 self.assertFalse((self.work / "build").exists())
 
     def test_invalid_target_does_not_install(self):
         self.assertEqual(self.run_build("invalid").returncode, 2)
         self.assertFalse(self.log.exists())
 
+    def test_explicit_target_is_required(self):
+        for args in ((), ("--vehicle-config", str(self.vehicle)),
+                     ("--vehicle-config", str(self.vehicle), "sitl")):
+            with self.subTest(args=args):
+                result = self.run_build(*args)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("<sitl|firmware>", result.stderr)
+                self.assertFalse(self.log.exists())
+
+    def test_help_does_not_install(self):
+        for args in (("--help",), ("-h",), ("sitl", "--help"), ("firmware", "-h")):
+            with self.subTest(args=args):
+                result = self.run_build(*args)
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("Usage:", result.stdout)
+                self.assertFalse(self.log.exists())
+
     def test_dependency_failure_prevents_configuration(self):
         self.env["BUILD_TEST_PIP_FAIL"] = "1"
-        self.assertNotEqual(self.run_build().returncode, 0)
+        self.assertNotEqual(self.run_build("sitl", "--vehicle-config", str(self.vehicle)).returncode, 0)
         self.assertNotIn("cmake", self.log.read_text())
 
     def test_configuration_failure_prevents_compilation(self):
         self.env["BUILD_TEST_CONFIG_FAIL"] = "1"
-        self.assertNotEqual(self.run_build().returncode, 0)
+        self.assertNotEqual(self.run_build("sitl", "--vehicle-config", str(self.vehicle)).returncode, 0)
         self.assertNotIn("cmake --build", self.log.read_text())
+
+    def test_explicit_vehicle_path_is_required(self):
+        for args in (("sitl",), ("sitl", "--vehicle-config"),
+                     ("sitl", "--vehicle-config", "missing.json")):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_build(*args).returncode, 2)
+                self.assertFalse(self.log.exists())
+
+    def test_invalid_vehicle_prevents_cmake(self):
+        self.vehicle.write_text('{"schema_version": 99}')
+        result = self.run_build("sitl", "--vehicle-config", str(self.vehicle))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid vehicle configuration", result.stderr)
+        self.assertNotIn("cmake", self.log.read_text())
+        self.assertFalse((self.project / "build/sitl/vehicle.json").exists())
 
 
 if __name__ == "__main__":

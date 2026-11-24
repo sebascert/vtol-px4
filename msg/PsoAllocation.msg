@@ -1,6 +1,6 @@
-# Diagnostic model candidate from the Raspberry Pi; no actuator-output consumer.
+# Diagnostic model candidate from the companion; no actuator-output consumer.
 uint64 timestamp             # PX4 receipt time, microseconds since boot
-uint64 timestamp_remote      # Pi steady-clock time, NOT synchronized to PX4
+uint64 timestamp_remote      # Companion steady-clock time, NOT synchronized to PX4
 float32[9] actuators          # Model units/order from companion/allocator/src/pso/pso_state.hpp
 float32 fitness
 float32 position_error_m
