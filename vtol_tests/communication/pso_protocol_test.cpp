@@ -14,7 +14,7 @@ int main(int argc, char **argv)
 {
     CHECK(argc == 2);
     pso_runtime::Optimizer optimizer(argv[1]);
-    auto result = optimizer.solve({}, optimizer.initialActuatorState(), {16, 5, 1});
+    auto result = optimizer.solve({}, {{0,0,-10},{0,0.1,0}}, optimizer.initialActuatorState(), {16, 5, 1});
     int master, slave;
     char port[128];
     CHECK(openpty(&master, &slave, port, nullptr, nullptr) == 0);
