@@ -1,0 +1,5 @@
+menuconfig MODULES_PSO_CONTROL
+    bool "pso_control"
+    default n
+    ---help---
+        Gated PSO actuator consumer for Stallion SITL and external HIL profiles.

@@ -32,6 +32,7 @@
  ****************************************************************************/
 
 #include "GZBridge.hpp"
+#include <gz/msgs/actuators.pb.h>
 
 #include <uORB/Subscription.hpp>
 
@@ -61,6 +62,8 @@ GZBridge::~GZBridge()
 
 int GZBridge::init()
 {
+	_pso_outputs_pub = _node.Advertise<gz::msgs::Actuators>("/model/" + _model_name + "/actuators_normalized");
+	if (!_pso_outputs_pub.Valid()) { return PX4_ERROR; }
 	// REQUIRED:
 	if (!subscribeClock(true)) {
 		return PX4_ERROR;
@@ -187,6 +190,15 @@ void GZBridge::Run()
 	}
 
 	ScheduleDelayed(10_ms);
+	pso_actuator_outputs_s outputs{};
+	if (_pso_outputs_sub.update(&outputs)) {
+		gz::msgs::Actuators command;
+		const uint64_t stamp = outputs.active ? outputs.timestamp_sample : outputs.timestamp;
+		command.mutable_header()->mutable_stamp()->set_sec(stamp / 1000000);
+		command.mutable_header()->mutable_stamp()->set_nsec((stamp % 1000000) * 1000);
+		for (float value : outputs.controls) { command.add_normalized(value); }
+		_pso_outputs_pub.Publish(command);
+	}
 }
 
 bool GZBridge::subscribeClock(bool required)

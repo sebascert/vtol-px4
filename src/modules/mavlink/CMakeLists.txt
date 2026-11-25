@@ -143,6 +143,10 @@ px4_add_module(
 	UNITY_BUILD
 	)
 
+if(CONFIG_MODULES_PSO_CONTROL)
+    target_include_directories(modules__mavlink PRIVATE ${PX4_BINARY_DIR})
+endif()
+
 px4_add_unit_gtest(SRC MavlinkStatustextHandlerTest.cpp
 	INCLUDES
 		${MAVLINK_LIBRARY_DIR}

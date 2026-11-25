@@ -37,6 +37,11 @@
 #include <uORB/topics/actuator_outputs.h>
 #include <uORB/topics/vehicle_control_mode.h>
 #include <uORB/topics/vehicle_status.h>
+#if defined(CONFIG_MODULES_PSO_CONTROL)
+#include <uORB/topics/pso_actuator_outputs.h>
+#include "pso_control/hil_output.hpp"
+#include "vehicle_actuators.hpp"
+#endif
 
 class MavlinkStreamHILActuatorControls : public MavlinkStream
 {
@@ -51,6 +56,11 @@ public:
 
 	unsigned get_size() override
 	{
+#if defined(CONFIG_MODULES_PSO_CONTROL)
+
+		if (_pso_hil) { return MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_LEN + MAVLINK_NUM_NON_PAYLOAD_BYTES; }
+
+#endif
 		return _act_sub.advertised() ? MAVLINK_MSG_ID_HIL_ACTUATOR_CONTROLS_LEN + MAVLINK_NUM_NON_PAYLOAD_BYTES : 0;
 	}
 
@@ -58,6 +68,33 @@ private:
 	explicit MavlinkStreamHILActuatorControls(Mavlink *mavlink) : MavlinkStream(mavlink)
 	{
 		_act_sub = uORB::Subscription{ORB_ID(actuator_outputs_sim)};
+#if defined(CONFIG_MODULES_PSO_CONTROL)
+		int32_t autostart = 0, hitl = 0;
+		param_get(param_find("SYS_AUTOSTART"), &autostart);
+		param_get(param_find("SYS_HITL"), &hitl);
+		_pso_hil = vtol_pso::hil_profile(autostart, hitl);
+#endif
+	}
+
+#if defined(CONFIG_MODULES_PSO_CONTROL)
+	bool _pso_hil {};
+	uORB::Subscription _pso_sub{ORB_ID(pso_actuator_outputs)};
+#endif
+	bool update_outputs(actuator_outputs_s &act)
+	{
+#if defined(CONFIG_MODULES_PSO_CONTROL)
+
+		if (_pso_hil) {
+			pso_actuator_outputs_s output{};
+			_pso_sub.copy(&output);
+			act.timestamp = hrt_absolute_time();
+			vtol_pso::hil_controls(output, act.timestamp, act.output, vtol_vehicle::hil_channels,
+					       vtol_vehicle::minimum, vtol_vehicle::maximum, vtol_vehicle::disarmed);
+			return true;
+		}
+
+#endif
+		return _act_sub.update(&act);
 	}
 
 	uORB::Subscription _act_sub{ORB_ID(actuator_outputs)};
@@ -68,7 +105,7 @@ private:
 	{
 		actuator_outputs_s act;
 
-		if (_act_sub.update(&act)) {
+		if (update_outputs(act)) {
 			mavlink_hil_actuator_controls_t msg{};
 			msg.time_usec = act.timestamp;
 

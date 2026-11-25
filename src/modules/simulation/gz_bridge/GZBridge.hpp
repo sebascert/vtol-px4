@@ -49,6 +49,7 @@
 
 #include <uORB/PublicationMulti.hpp>
 #include <uORB/Subscription.hpp>
+#include <uORB/topics/pso_actuator_outputs.h>
 #include <uORB/SubscriptionInterval.hpp>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/differential_pressure.h>
@@ -140,6 +141,8 @@ private:
 			 float &vel_north, float &vel_east, float &vel_down);
 
 	uORB::SubscriptionInterval                    _parameter_update_sub{ORB_ID(parameter_update), 1_s};
+	uORB::Subscription _pso_outputs_sub{ORB_ID(pso_actuator_outputs)};
+	gz::transport::Node::Publisher _pso_outputs_pub;
 
 	uORB::Publication<distance_sensor_s>          _distance_sensor_pub{ORB_ID(distance_sensor)};
 	uORB::Publication<differential_pressure_s>    _differential_pressure_pub{ORB_ID(differential_pressure)};

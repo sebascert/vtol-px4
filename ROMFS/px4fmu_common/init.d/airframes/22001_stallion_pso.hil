@@ -1,0 +1,23 @@
+#!/bin/sh
+# @name Stallion PSO external HIL
+# @type Simulation
+# @class Copter
+
+. ${R}etc/init.d/rc.mc_defaults
+set VEHICLE_TYPE pso
+param set SYS_HITL 1
+param set MAV_TYPE 2
+param set GPS_1_CONFIG 0
+param set GPS_2_CONFIG 0
+param set SENS_EN_MAGSIM 0
+param set UAVCAN_ENABLE 0
+param set COM_RC_IN_MODE 4
+# USB carries HIL; TELEM2 carries companion telemetry and allocations only.
+param set USB_MAV_MODE 5
+param set MAV_0_CONFIG 0
+param set MAV_2_CONFIG 0
+param set MAV_1_CONFIG 102
+param set MAV_1_MODE 2
+param set MAV_1_FLOW_CTRL 0
+param set MAV_1_RATE 18000
+param set SER_TEL2_BAUD 230400

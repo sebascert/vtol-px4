@@ -658,6 +658,14 @@ int
 Mavlink::set_hil_enabled(bool hil_enabled)
 {
 	int ret = OK;
+#if defined(CONFIG_MODULES_PSO_CONTROL)
+	int32_t autostart = 0;
+	param_get(param_find("SYS_AUTOSTART"), &autostart);
+	// Reserve the Onboard link's bandwidth for companion state/targets and PSO.
+	if (autostart == 22001 && _mode == MAVLINK_MODE_ONBOARD) {
+		hil_enabled = false;
+	}
+#endif
 
 	/* enable HIL (only on links with sufficient bandwidth) */
 	if (hil_enabled && !_hil_enabled && _datarate > 5000) {

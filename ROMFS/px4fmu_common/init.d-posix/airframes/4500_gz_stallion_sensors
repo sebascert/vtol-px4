@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+# @name Stallion VTOL sensor bench (no actuator mapping)
+# @type Simulation
+#
+
+set VEHICLE_TYPE sensor_test
+PX4_SIMULATOR=gz
+PX4_GZ_WORLD=${PX4_GZ_WORLD:=pvtol_world}
+PX4_SIM_MODEL=${PX4_SIM_MODEL:=stallion_vtol}
+
+param set-default MAV_TYPE 0
+param set-default SIM_GZ_EN 1
+param set-default SIM_GZ_EN_GPS 1
+param set-default SIM_GZ_EN_BARO 1
+# Harmonic's native magnetometer has a frame bug during tilt; use PX4's model.
+param set-default SENS_EN_MAGSIM 1
+# No vehicle controllers or motor/servo functions: estimator validation only.

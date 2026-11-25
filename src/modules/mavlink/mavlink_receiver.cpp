@@ -2835,6 +2835,11 @@ MavlinkReceiver::handle_message_debug_float_array(mavlink_message_t *msg)
 		pso_allocation_s allocation{};
 		allocation.timestamp = debug_topic.timestamp;
 		allocation.timestamp_remote = debug_msg.time_usec;
+		allocation.protocol_version = static_cast<uint8_t>(debug_msg.data[13]);
+		for (unsigned i = 0; i < 3; ++i) {
+			allocation.target_position[i] = debug_msg.data[14+i];
+			allocation.target_orientation[i] = debug_msg.data[17+i];
+		}
 
 		for (unsigned i = 0; i < 9; ++i) {
 			allocation.actuators[i] = debug_msg.data[i];

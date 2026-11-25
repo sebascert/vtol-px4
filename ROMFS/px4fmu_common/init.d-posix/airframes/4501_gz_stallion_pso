@@ -1,0 +1,7 @@
+#!/bin/sh
+# @name Stallion pose-target PSO SITL
+# @type Simulation
+. ${R}etc/init.d-posix/airframes/4500_gz_stallion_sensors
+. ${R}etc/init.d/rc.mc_defaults
+set VEHICLE_TYPE pso
+# No stock control_allocator: pso_control exclusively owns the nine outputs.

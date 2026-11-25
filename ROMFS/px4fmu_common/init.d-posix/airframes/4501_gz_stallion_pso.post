@@ -1,0 +1,9 @@
+#!/bin/sh
+pso_control start
+flight_mode_manager start
+mc_pos_control start
+land_detector start multicopter
+mavlink stream -r 100 -s LOCAL_POSITION_NED -u 14580
+mavlink stream -r 100 -s ATTITUDE -u 14580
+mavlink stream -r 100 -s POSITION_TARGET_LOCAL_NED -u 14580
+mavlink stream -r 100 -s ATTITUDE_TARGET -u 14580

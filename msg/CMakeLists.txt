@@ -60,6 +60,7 @@ set(msg_files
 	DatamanRequest.msg
 	DatamanResponse.msg
 	PsoAllocation.msg
+	PsoActuatorOutputs.msg
 	DebugArray.msg
 	DebugKeyValue.msg
 	DebugValue.msg

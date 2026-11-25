@@ -1,0 +1,41 @@
+{
+  "extends": "../dprint.json",
+  "excludes": [],
+  "includes": [
+    "./README_VTOL.md",
+    "./ROMFS/px4fmu_common/init.d-posix/airframes/4500_gz_stallion_sensors",
+    "./ROMFS/px4fmu_common/init.d-posix/airframes/4501_gz_stallion_pso",
+    "./ROMFS/px4fmu_common/init.d-posix/airframes/4501_gz_stallion_pso.post",
+    "./ROMFS/px4fmu_common/init.d/airframes/22001_stallion_pso.hil",
+    "./ROMFS/px4fmu_common/init.d/airframes/22001_stallion_pso.hil.post",
+    "./boards/px4/sitl/vtol.px4board",
+    "./build.sh",
+    "./msg/PsoActuatorOutputs.msg",
+    "./msg/PsoAllocation.msg",
+    "./requirements.txt",
+    "./run-gazebo-pso.sh",
+    "./run-gazebo-sensors.sh",
+    "./src/modules/mavlink/pso_allocation.hpp",
+    "./src/modules/pso_control/CMakeLists.txt",
+    "./src/modules/pso_control/Kconfig",
+    "./src/modules/pso_control/hil_output.hpp",
+    "./src/modules/pso_control/policy.hpp",
+    "./src/modules/pso_control/pso_control.cpp",
+    "./vtol_tests/communication/CMakeLists.txt",
+    "./vtol_tests/communication/pso_policy_test.cpp",
+    "./vtol_tests/communication/pso_protocol_test.cpp",
+    "./vtol_tests/gazebo_closed_loop.py",
+    "./vtol_tests/gazebo_communication.py",
+    "./vtol_tests/gazebo_sensors.py",
+    "./vtol_tests/test_build.py"
+  ],
+  "shfmt": {
+    "associations": [
+      "./ROMFS/px4fmu_common/init.d-posix/airframes/4500_gz_stallion_sensors",
+      "./ROMFS/px4fmu_common/init.d-posix/airframes/4501_gz_stallion_pso",
+      "./ROMFS/px4fmu_common/init.d-posix/airframes/4501_gz_stallion_pso.post",
+      "./ROMFS/px4fmu_common/init.d/airframes/22001_stallion_pso.hil",
+      "./ROMFS/px4fmu_common/init.d/airframes/22001_stallion_pso.hil.post"
+    ]
+  }
+}

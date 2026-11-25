@@ -40,6 +40,10 @@ px4_add_romfs_files(
 	# [22000, 22999] Reserve for custom models
 )
 
+if(CONFIG_MODULES_PSO_CONTROL)
+    px4_add_romfs_files(22001_stallion_pso.hil 22001_stallion_pso.hil.post)
+endif()
+
 if(CONFIG_MODULES_SIMULATION_PWM_OUT_SIM)
 	px4_add_romfs_files(
 		# [1000, 1999] Simulation setups
