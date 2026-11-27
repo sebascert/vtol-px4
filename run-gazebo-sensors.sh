@@ -3,7 +3,7 @@ set -euo pipefail
 PROJECT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SITL="$PROJECT_DIR/build/sitl"
 if [[ ! -f "$SITL/etc/init.d-posix/airframes/4500_gz_stallion_sensors" ]]; then
-	echo 'Build controller SITL first; see controller/README_VTOL.md.' >&2
+	echo 'Build controller sitl-native first; see controller/README_VTOL.md.' >&2
 	exit 1
 fi
 run_dir="$PROJECT_DIR/build/gazebo-sensors/rootfs"

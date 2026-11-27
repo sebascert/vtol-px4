@@ -1,0 +1,20 @@
+#!/bin/sh
+# @name Stallion PSO SIL-HIL (desktop stand-in for the Pixhawk HIL profile)
+# @type Simulation
+# @class Copter
+#
+# Mirrors init.d/airframes/22001_stallion_pso.hil on the posix build: same
+# autostart number, SYS_HITL=1 and parameters, so pso_control, the
+# HIL_ACTUATOR_CONTROLS stream and the HIL bridge treat it exactly like the
+# board. PTYs stand in for USB (HIL link) and TELEM2 (companion link); the
+# serial-framework parameters (USB_MAV_MODE, MAV_1_CONFIG, SER_TEL2_BAUD) do
+# not exist on posix, so the .post script starts the links itself.
+
+. ${R}etc/init.d/rc.mc_defaults
+set VEHICLE_TYPE pso
+param set SYS_HITL 1
+param set MAV_TYPE 2
+param set SENS_EN_MAGSIM 0
+param set COM_RC_IN_MODE 4
+# Battery telemetry comes from the HIL receiver, as on hardware.
+param set SIM_BAT_ENABLE 0

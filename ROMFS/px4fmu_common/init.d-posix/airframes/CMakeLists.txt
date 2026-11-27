@@ -71,6 +71,8 @@ px4_add_romfs_files(
 	3011_jsbsim_hexarotor_x
 
 	4001_gz_x500
+	22001_stallion_pso_silhil
+	22001_stallion_pso_silhil.post
 	4500_gz_stallion_sensors
 	4501_gz_stallion_pso
 	4501_gz_stallion_pso.post

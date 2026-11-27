@@ -78,7 +78,8 @@ if [[ $1 == -S ]]; then exit "$BUILD_TEST_CONFIG_FAIL"; fi
 
     def test_targets_and_project_local_paths(self):
         for args, target, directory in [
-            (("sitl",), "px4_sitl_vtol", "sitl"),
+            (("sitl",), "px4_sitl_hil", "sitl-hil"),
+            (("sitl-native",), "px4_sitl_vtol", "sitl"),
             (("firmware",), "px4_fmu-v6c_default", "firmware"),
         ]:
             with self.subTest(target=target):
@@ -113,7 +114,7 @@ if [[ $1 == -S ]]; then exit "$BUILD_TEST_CONFIG_FAIL"; fi
             with self.subTest(args=args):
                 result = self.run_build(*args)
                 self.assertEqual(result.returncode, 2)
-                self.assertIn("<sitl|firmware>", result.stderr)
+                self.assertIn("<sitl|sitl-native|firmware>", result.stderr)
                 self.assertFalse(self.log.exists())
 
     def test_help_does_not_install(self):
@@ -153,7 +154,7 @@ if [[ $1 == -S ]]; then exit "$BUILD_TEST_CONFIG_FAIL"; fi
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Invalid vehicle configuration", result.stderr)
         self.assertNotIn("cmake", self.log.read_text())
-        self.assertFalse((self.project / "build/sitl/vehicle.json").exists())
+        self.assertFalse((self.project / "build/sitl-hil/vehicle.json").exists())
 
 
 if __name__ == "__main__":

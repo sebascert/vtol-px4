@@ -42,11 +42,13 @@ def main():
     vehicle = Path.home() / ".local/share/vtol26/config/vehicle.json"
     allocator = REPO / "companion/allocator/build/vtol_allocator"
     if not allocator.is_file() or not (SITL / "bin/px4").is_file():
-        parser.error("Build the allocator and controller sitl targets first")
+        parser.error("Build the allocator and controller sitl-native targets first")
     if json.loads(vehicle.read_text()) != json.loads(
         (SITL / "vehicle.json").read_text()
     ):
-        parser.error("Rebuild sitl with the selected vehicle configuration first")
+        parser.error(
+            "Rebuild sitl-native with the selected vehicle configuration first"
+        )
     # Avoid colliding with another PX4 instance or an existing serial bridge.
     for port in (14540, 14580, 18570):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:

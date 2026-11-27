@@ -238,10 +238,23 @@ then
 	exit 1
 fi
 
+# Only the desktop Stallion HIL profile provides the external serial links.
+vtol_external_hil=no
+if param compare SYS_AUTOSTART 22001 && param compare SYS_HITL 1
+then
+	vtol_external_hil=yes
+fi
+
 dataman start
 
 # only start the simulator if not in replay mode, as both control the lockstep time
-if ! replay tryapplyparams
+if [ "$vtol_external_hil" = yes ]
+then
+	# External HIL: sensors and outputs travel over MAVLink (HIL_SENSOR /
+	# HIL_ACTUATOR_CONTROLS); no local simulator module runs. Requires a
+	# board without the lockstep scheduler (e.g. px4_sitl_hil).
+	echo "INFO  [init] SYS_HITL enabled, skipping simulator"
+elif ! replay tryapplyparams
 then
 	. px4-rc.simulator
 fi
@@ -258,8 +271,15 @@ system_power_simulator start
 tone_alarm start
 rc_update start
 manual_control start
-sensors start
-commander start
+if [ "$vtol_external_hil" = yes ]
+then
+	# Match the hardware HITL startup (init.d/rcS).
+	sensors start -h
+	commander start -h
+else
+	sensors start
+	commander start
+fi
 
 #
 # state estimator selection
@@ -278,7 +298,12 @@ then
 	attitude_estimator_q start
 fi
 
-if ! pwm_out_sim start -m sim
+pwm_out_sim_mode="sim"
+if [ "$vtol_external_hil" = yes ]
+then
+	pwm_out_sim_mode="hil"
+fi
+if ! pwm_out_sim start -m $pwm_out_sim_mode
 then
 	tune_control play error
 fi
@@ -357,7 +382,14 @@ then
 fi
 
 #user defined mavlink streams for instances can be in PATH
-. px4-rc.mavlink
+if [ "$vtol_external_hil" = yes ]
+then
+	# External HIL: the airframe .post starts its own serial links, like the
+	# hardware profile. The stock UDP links do not exist on a HIL board.
+	echo "INFO  [init] SYS_HITL enabled, skipping default UDP MAVLink links"
+else
+	. px4-rc.mavlink
+fi
 
 # execute autostart post script if any
 [ -e "$autostart_file".post ] && . "$autostart_file".post

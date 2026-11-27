@@ -1,0 +1,15 @@
+#!/bin/sh
+# PTY devices provided by the launcher (controller/run-gazebo-pso.sh).
+# "USB" HIL link to simulation/hil_bridge.py: config mode like USB_MAV_MODE=5;
+# a high baud mirrors USB bandwidth so HIL streams are not rate-starved.
+mavlink start -d $VTOL_SILHIL_USB_DEV -b 2000000 -m config
+# "TELEM2" companion link: same mode, baud and rates as the hardware profile.
+mavlink start -d $VTOL_SILHIL_COMPANION_DEV -b 230400 -m onboard -r 18000
+pso_control start
+flight_mode_manager start
+mc_pos_control start
+land_detector start multicopter
+mavlink stream -r 50 -s LOCAL_POSITION_NED -d $VTOL_SILHIL_COMPANION_DEV
+mavlink stream -r 50 -s ATTITUDE -d $VTOL_SILHIL_COMPANION_DEV
+mavlink stream -r 50 -s POSITION_TARGET_LOCAL_NED -d $VTOL_SILHIL_COMPANION_DEV
+mavlink stream -r 50 -s ATTITUDE_TARGET -d $VTOL_SILHIL_COMPANION_DEV

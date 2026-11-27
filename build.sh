@@ -4,11 +4,11 @@ set -euo pipefail
 PROJECT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 usage() {
-	echo "Usage: $0 <sitl|firmware> [CMake options...]"
+	echo "Usage: $0 <sitl|sitl-native|firmware> [CMake options...]"
 }
 
 case "${1:-}" in
-sitl | firmware)
+sitl | sitl-native | firmware)
 	target_dir=$1
 	shift
 	;;
@@ -37,6 +37,11 @@ done
 
 case "$target_dir" in
 sitl)
+	config=px4_sitl_hil
+	target_dir=sitl-hil
+	;;
+sitl-native)
+	target_dir=sitl
 	config=px4_sitl_vtol
 	export GZ_DISTRO=harmonic
 	;;

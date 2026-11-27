@@ -1,24 +1,24 @@
-#!/usr/bin/env python3
 """Run the real pose-target allocator -> PX4 -> custom Gazebo plant loop."""
 
 import argparse
-from contextlib import ExitStack
+import fcntl
 import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import pty
 import runpy
 import select
 import signal
-import socket
 import statistics
 import subprocess
+import tempfile
 import time
-import xml.etree.ElementTree as ET
-from pymavlink import mavutil
+from contextlib import ExitStack
+from pathlib import Path
+
 from gazebo_sensors import plain, scalar, vector
+from pymavlink import mavutil
 
 CONTROLLER = Path(__file__).resolve().parents[1]
 REPO = CONTROLLER.parent
@@ -27,32 +27,9 @@ OUTPUT = CONTROLLER / "build/gazebo-closed-loop"
 
 def run(vehicle, loss, OUTPUT):
     config = json.loads(vehicle.read_text())
-    for port in (14540, 14550, 14580, 18570):
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-            probe.bind(("127.0.0.1", port))
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    prepared = OUTPUT / "world"
-    subprocess.run(
-        [
-            REPO / "simulation/build/vtol_prepare",
-            vehicle,
-            REPO / "simulation",
-            prepared,
-        ],
-        check=True,
-    )
-    # A real ground start, not a kinematic hold or injected lift force.
-    world = ET.parse(prepared / "pvtol.sdf")
-    radius = float(
-        ET.parse(prepared / "models/stallion_vtol/model.sdf").findtext(
-            "model/link/collision/geometry/sphere/radius"
-        )
-    )
-    pose = world.find("world/include/pose")
-    values = pose.text.split()
-    values[2] = str(radius)
-    pose.text = " ".join(values)
-    world.write(prepared / "ground-start.sdf", encoding="utf-8", xml_declaration=True)
+    bridge_output = OUTPUT / "world"
+    bridge_status = bridge_output / "status.json"
     hil_config = runpy.run_path(str(REPO / "companion/allocator/prepare_hil.py"))[
         "configuration"
     ]
@@ -65,8 +42,6 @@ def run(vehicle, loss, OUTPUT):
         os.environ,
         GZ_PARTITION=f"vtol-loop-{os.getpid()}-{loss}",
         GZ_IP="127.0.0.1",
-        GZ_SIM_SYSTEM_PLUGIN_PATH=str(REPO / "simulation/build"),
-        GZ_SIM_RESOURCE_PATH=str(prepared / "models"),
     )
     processes = []
     console = bytearray()
@@ -80,24 +55,30 @@ def run(vehicle, loss, OUTPUT):
     descent = 0
     result = {
         "passed": False,
-        "scope": "Real companion PSO, PX4 gated outputs, custom dynamic Gazebo plant; no physical hardware",
+        "scope": "Desktop PX4 profile 22001, Python HIL bridge, companion PSO, Gazebo plant",
         "loss_case": loss,
         "vehicle_sha256": hashlib.sha256(
-            (CONTROLLER / "build/sitl/vehicle.json").read_bytes()
+            (CONTROLLER / "build/sitl-hil/vehicle.json").read_bytes()
         ).hexdigest(),
     }
     (OUTPUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-    master, slave = pty.openpty()
-    connection = mavutil.mavlink_connection(
-        "udpin:127.0.0.1:14550", source_system=255, source_component=190
-    )
 
     def terminate_signal(signum, frame):
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, terminate_signal)
     with ExitStack() as files:
-        gzlog = files.enter_context((OUTPUT / "gazebo.log").open("w"))
+        master, slave_fd = pty.openpty()
+        files.callback(os.close, master)
+        slave = files.enter_context(os.fdopen(slave_fd, "r+b", buffering=0))
+        connection = mavutil.mavlink_connection(
+            "udpin:127.0.0.1:0", source_system=255, source_component=190
+        )
+        files.callback(connection.close)
+        hil_log = files.enter_context((OUTPUT / "hil.log").open("w"))
+        pty_dir = Path(
+            files.enter_context(tempfile.TemporaryDirectory(prefix="vtol-sil-"))
+        )
         pxlog = files.enter_context((OUTPUT / "px4.log").open("wb"))
         allocatorlog = files.enter_context((OUTPUT / "allocator.jsonl").open("w"))
         allocatorerr = files.enter_context((OUTPUT / "allocator.stderr").open("w"))
@@ -196,29 +177,74 @@ def run(vehicle, loss, OUTPUT):
         def is_active(text):
             return "active: True" in text
 
-        try:
+        def serial_pair(name):
+            ends = [pty_dir / f"{name}-{i}" for i in range(2)]
             processes.append(
                 subprocess.Popen(
-                    [
-                        "gz",
-                        "sim",
-                        "-r",
-                        "-s",
-                        "--seed",
-                        "42",
-                        str(prepared / "ground-start.sdf"),
-                    ],
-                    env=env,
-                    stdout=gzlog,
-                    stderr=gzlog,
+                    ["socat", *(f"PTY,link={end},rawer,echo=0" for end in ends)],
+                    stdout=bridgefile,
+                    stderr=bridgefile,
                     start_new_session=True,
                 )
             )
-            run = OUTPUT / f"rootfs-{os.getpid()}"
-            run.mkdir(exist_ok=True)
+            wait(lambda: all(end.exists() for end in ends), 5, f"{name} PTY pair")
+            return [end.resolve(strict=True) for end in ends]
+
+        def ground_truth():
+            # Query Gazebo directly while pump() keeps Offboard setpoints flowing.
+            with (OUTPUT / f"{phase}-gazebo-pose.json").open("w+") as evidence:
+                query = subprocess.Popen(
+                    [
+                        "gz",
+                        "topic",
+                        "-t",
+                        "/world/pvtol_world/pose/info",
+                        "-e",
+                        "-n",
+                        "1",
+                        "--json-output",
+                    ],
+                    env=env,
+                    stdout=evidence,
+                    stderr=hil_log,
+                )
+                try:
+                    wait(lambda: query.poll() is not None, 8, "Gazebo ground truth")
+                    if query.returncode:
+                        raise RuntimeError("Gazebo pose query failed; inspect hil.log")
+                finally:
+                    if query.poll() is None:
+                        query.kill()
+                    query.wait()
+                evidence.seek(0)
+                poses = json.load(evidence)["pose"]
+            pos = next(
+                p["position"] for p in poses if p.get("name") == "controlled_drone"
+            )
+            # Gazebo world ENU to the NED frame used by the tracking assertions.
+            return pos.get("y", 0), pos.get("x", 0), -pos.get("z", 0)
+
+        def bridge_ready():
+            if not bridge_status.exists():
+                return False
+            status = json.loads(bridge_status.read_text())
+            return status["ready"] and status["imu"] > 0 and status["gps"] > 0
+
+        try:
+            usb_bridge, usb_px4 = serial_pair("usb")
+            link, companion_px4 = serial_pair("companion")
+            run = Path(tempfile.mkdtemp(prefix="rootfs-", dir=OUTPUT))
             processes.append(
                 subprocess.Popen(
-                    [str(CONTROLLER / "run-gazebo-pso.sh"), "-w", str(run)],
+                    [
+                        str(CONTROLLER / "run-gazebo-pso.sh"),
+                        "--usb",
+                        str(usb_px4),
+                        "--companion",
+                        str(companion_px4),
+                        "-w",
+                        str(run),
+                    ],
                     cwd=REPO,
                     env=env,
                     stdin=slave,
@@ -227,17 +253,43 @@ def run(vehicle, loss, OUTPUT):
                     start_new_session=True,
                 )
             )
-            os.close(slave)
+            slave.close()
             wait(
                 lambda: "Startup script returned successfully" in plain(console),
                 75,
                 "PX4 startup",
             )
+            bridge_status.unlink(missing_ok=True)
+            processes.append(
+                subprocess.Popen(
+                    [
+                        str(REPO / "simulation/run-hil.sh"),
+                        "--port",
+                        str(usb_bridge),
+                        "--headless",
+                        "--seed",
+                        "42",
+                        "--gcs",
+                        f"127.0.0.1:{connection.port.getsockname()[1]}",
+                        "--output-dir",
+                        str(bridge_output),
+                    ],
+                    env=env,
+                    stdout=hil_log,
+                    stderr=hil_log,
+                    start_new_session=True,
+                )
+            )
+            wait(bridge_ready, 90, "Python HIL bridge readiness")
             wait(lambda: "LOCAL_POSITION_NED" in latest, 30, "position telemetry")
-            pump(12)
+            pump(15)
+            position = topic("vehicle_local_position")
+            for flag in ("xy_valid", "z_valid", "v_xy_valid", "v_z_valid"):
+                assert f"{flag}: True" in position, ("EKF not ready", flag)
+            assert scalar(topic("vehicle_status"), "hil_state") == 1
             local = latest["LOCAL_POSITION_NED"]
             goal = [local.x, local.y, local.z]
-            initial_truth = topic("vehicle_local_position_groundtruth")
+            initial_truth = ground_truth()
             phase = "prearm"
             pump(1)
             command("commander mode offboard")
@@ -245,28 +297,13 @@ def run(vehicle, loss, OUTPUT):
             assert scalar(topic("vehicle_status"), "nav_state") == 14, (
                 "Offboard rejected"
             )
-            link = OUTPUT / "allocator.pty"
-            link.unlink(missing_ok=True)
-            processes.append(
-                subprocess.Popen(
-                    [
-                        "socat",
-                        f"PTY,link={link},rawer,echo=0",
-                        "UDP4:127.0.0.1:14580,bind=127.0.0.1:14540",
-                    ],
-                    stdout=bridgefile,
-                    stderr=bridgefile,
-                    start_new_session=True,
-                )
-            )
-            wait(link.exists, 5, "serial bridge")
             allocator = subprocess.Popen(
                 [
                     str(REPO / "companion/allocator/build/vtol_allocator"),
                     "--port",
                     str(link),
                     "--baud",
-                    "115200",
+                    "230400",
                     "--pso-config",
                     str(OUTPUT / "pso.json"),
                     "--loop-ms",
@@ -335,14 +372,19 @@ def run(vehicle, loss, OUTPUT):
                 error,
                 horizontal_error,
             )
-            truth = topic("vehicle_local_position_groundtruth")
-            actual_rise = scalar(initial_truth, "z") - scalar(truth, "z")
+            truth = ground_truth()
+            actual_rise = initial_truth[2] - truth[2]
             assert actual_rise > 0.15, ("No physical rise", actual_rise)
             result["gazebo_rise_m"] = actual_rise
             result["applied_source_age_ms"] = (
                 scalar(applied, "timestamp") - scalar(applied, "timestamp_sample")
             ) / 1000
             assert result["applied_source_age_ms"] < 250
+            status = json.loads(bridge_status.read_text())
+            assert status["ready"] and status["controls"] > 0, (
+                "Missing HIL actuator traffic"
+            )
+            result["bridge_status"] = status
             phase = "lateral"
             goal = [goal[0] + 0.2, goal[1], goal[2]]
             pump(8)
@@ -358,10 +400,8 @@ def run(vehicle, loss, OUTPUT):
             result["lateral_step_pose_rmse_m"] = error
             assert error < 0.15, ("Lateral pose tracking", error)
             assert is_active(outputs()), "Consumer stopped during lateral step"
-            truth = topic("vehicle_local_position_groundtruth")
-            displacement = [
-                scalar(truth, axis) - scalar(initial_truth, axis) for axis in ("x", "y")
-            ]
+            truth = ground_truth()
+            displacement = [truth[i] - initial_truth[i] for i in (0, 1)]
             result["gazebo_horizontal_displacement_ned_m"] = displacement
             assert 0.05 < displacement[0] < 0.35 and abs(displacement[1]) < 0.2, (
                 "Physical lateral response",
@@ -449,7 +489,6 @@ def run(vehicle, loss, OUTPUT):
             result["error"] = repr(error)
             raise
         finally:
-            (OUTPUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
             for p in reversed(processes):
                 if p.poll() is None:
                     try:
@@ -458,12 +497,12 @@ def run(vehicle, loss, OUTPUT):
                     except ProcessLookupError:
                         pass
                     try:
-                        p.wait(timeout=5)
+                        # The HIL launcher gives its Gazebo child five seconds to exit.
+                        p.wait(timeout=10)
                     except subprocess.TimeoutExpired:
                         os.killpg(p.pid, signal.SIGKILL)
                         p.wait()
-            connection.close()
-            os.close(master)
+            (OUTPUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     return result
 
 
@@ -471,20 +510,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args()
     vehicle = Path.home() / ".local/share/vtol26/config/vehicle.json"
-    if json.loads(vehicle.read_text()) != json.loads(
-        (CONTROLLER / "build/sitl/vehicle.json").read_text()
-    ):
+    snapshot = CONTROLLER / "build/sitl-hil/vehicle.json"
+    if not snapshot.exists():
+        parser.error("Build desktop HIL PX4 first: ./controller/build.sh sitl")
+    if json.loads(vehicle.read_text()) != json.loads(snapshot.read_text()):
         parser.error("Rebuild SITL with this vehicle configuration first")
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    summary = {"passed": False, "runs": {}}
-    (OUTPUT / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
-    try:
-        # Each loss starts from a fresh world, not a vehicle damaged by the other stop.
-        for loss in ("allocator", "target"):
-            summary["runs"][loss] = run(vehicle, loss, OUTPUT / loss)
-        summary["passed"] = True
-    finally:
+    with (OUTPUT / ".run.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            parser.error("Another closed-loop run is using this output directory")
+        summary = {"passed": False, "runs": {}}
         (OUTPUT / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
+        try:
+            # Each loss starts from a fresh world, not a vehicle damaged by the other stop.
+            for loss in ("allocator", "target"):
+                summary["runs"][loss] = run(vehicle, loss, OUTPUT / loss)
+            summary["passed"] = True
+        finally:
+            (OUTPUT / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(json.dumps(summary, indent=2))
 
 
