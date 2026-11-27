@@ -21,7 +21,8 @@ Choose a target explicitly:
   bridge in `build/sitl-hil/`.
 - **`sitl-native`** builds PX4 for the X500 and profile 4500 native Gazebo
   diagnostics in `build/sitl/`.
-- **`firmware`** builds the Pixhawk 6C firmware package.
+- **`firmware`** builds the Pixhawk 6C image. Its default airframe is Stallion
+  HIL (22001). A saved airframe selection takes precedence.
 
 Run the chosen command from the VTOL26 workspace root:
 
@@ -53,9 +54,9 @@ Install the [vehicle configuration][vehicle-config] before building.
   state/target streams. This profile maps the custom stream directly from
   `pso_actuator_outputs`; stock `HIL_ACT_FUNC*` assignments do not define its
   channel mapping.
-- **Telemetry setup:** configures TELEM2 for Onboard telemetry at 57600 baud
-  without hardware flow control. The settings are applied at every boot, with
-  USB retained for QGroundControl and unused serial MAVLink instances disabled.
+- **Telemetry setup:** the board configures TELEM2 for Onboard telemetry without
+  hardware flow control. The HIL airframe selects 230400 baud and uses USB for
+  the HIL bridge. Airframes using the base board settings use 57600 baud.
 - **Simulation and testing:** the `sitl-native` target supports PX4's built-in
   SIH simulator and native Gazebo Harmonic bridge/plugins. The Pixhawk build
   includes HIL output support. Protocol tests exercise the companion's serial

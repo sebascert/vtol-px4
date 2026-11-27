@@ -48,7 +48,7 @@ def run(vehicle, loss, OUTPUT):
     samples = []
     latest = {}
     goal = None
-    references = True
+    references = loss != "waypoints"
     phase = "initialization"
     next_reference = 0
     next_heartbeat = 0
@@ -56,7 +56,7 @@ def run(vehicle, loss, OUTPUT):
     result = {
         "passed": False,
         "scope": "Desktop PX4 profile 22001, Python HIL bridge, companion PSO, Gazebo plant",
-        "loss_case": loss,
+        **({"scenario": "waypoints"} if loss == "waypoints" else {"loss_case": loss}),
         "vehicle_sha256": hashlib.sha256(
             (CONTROLLER / "build/sitl-hil/vehicle.json").read_bytes()
         ).hexdigest(),
@@ -86,7 +86,7 @@ def run(vehicle, loss, OUTPUT):
         trace = files.enter_context((OUTPUT / "state.jsonl").open("w"))
 
         def pump(seconds=0.1):
-            nonlocal next_reference, next_heartbeat
+            nonlocal next_reference, next_heartbeat, goal
             end = time.monotonic() + seconds
             while time.monotonic() < end:
                 now = time.monotonic()
@@ -94,6 +94,11 @@ def run(vehicle, loss, OUTPUT):
                     if message.get_srcSystem() != 1:
                         continue
                     latest[message.get_type()] = message
+                    if (
+                        loss == "waypoints"
+                        and message.get_type() == "POSITION_TARGET_LOCAL_NED"
+                    ):
+                        goal = [message.x, message.y, message.z]
                     if message.get_type() == "LOCAL_POSITION_NED":
                         row = {
                             "wall_time": now,
@@ -267,6 +272,7 @@ def run(vehicle, loss, OUTPUT):
                         "--port",
                         str(usb_bridge),
                         "--headless",
+                        *(["--waypoints"] if loss == "waypoints" else []),
                         "--seed",
                         "42",
                         "--gcs",
@@ -324,6 +330,15 @@ def run(vehicle, loss, OUTPUT):
             processes.append(allocator)
             pump(1)
             assert not is_active(outputs()), "Outputs active while disarmed"
+            if loss == "waypoints":
+                from waypoint_demo import verify_flight
+
+                def set_phase(value):
+                    nonlocal phase
+                    phase = value
+
+                result.update(verify_flight(OUTPUT, pump, command, topic, set_phase))
+                return result
             phase = "ground_arm_cycle"
             command("commander arm")
             pump(0.2)
@@ -508,7 +523,12 @@ def run(vehicle, loss, OUTPUT):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
+    parser.add_argument(
+        "--waypoint-demo",
+        action="store_true",
+        help="record a measured desktop waypoint flight",
+    )
+    args = parser.parse_args()
     vehicle = Path.home() / ".local/share/vtol26/config/vehicle.json"
     snapshot = CONTROLLER / "build/sitl-hil/vehicle.json"
     if not snapshot.exists():
@@ -521,6 +541,23 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             parser.error("Another closed-loop run is using this output directory")
+        if args.waypoint_demo:
+            directory = Path(
+                tempfile.mkdtemp(prefix="waypoint-flight-", dir=CONTROLLER / "build")
+            )
+            print(f"Waypoint artifacts: {directory}", flush=True)
+            print(
+                json.dumps(run(vehicle, "waypoints", directory), indent=2), flush=True
+            )
+            subprocess.run(
+                [
+                    REPO / "simulation/build/venv/bin/python3",
+                    REPO / "simulation/render_waypoints.py",
+                    directory,
+                ],
+                check=True,
+            )
+            return
         summary = {"passed": False, "runs": {}}
         (OUTPUT / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
         try:

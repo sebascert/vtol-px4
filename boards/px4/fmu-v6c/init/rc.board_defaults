@@ -4,6 +4,12 @@
 #------------------------------------------------------------------------------
 
 
+# Select the bench airframe by default on builds that include Stallion HIL.
+if [ -f ${R}etc/init.d/airframes/22001_stallion_pso.hil ]
+then
+	param set-default SYS_AUTOSTART 22001
+fi
+
 param set-default BAT1_V_DIV 18.1
 param set-default BAT2_V_DIV 18.1
 

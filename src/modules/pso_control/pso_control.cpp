@@ -108,11 +108,9 @@ class PsoControl final : public ModuleBase<PsoControl>,
   }
 
   void Run() override {
-    const uint64_t now = hrt_absolute_time();
-
     if (should_exit()) {
       reason = 1;
-      publish(now, false);
+      publish(hrt_absolute_time(), false);
       ScheduleClear();
       exit_and_cleanup();
       return;
@@ -125,6 +123,11 @@ class PsoControl final : public ModuleBase<PsoControl>,
     attitude_target_sub.update(&attitude_target);
     position_sub.update(&position);
     attitude_sub.update(&attitude);
+    pso_allocation_s incoming{};
+    const bool allocation_updated = allocations.update(&incoming);
+    // A publisher can run during these copies. Check ages against the time
+    // after sampling so a newly received timestamp cannot appear in the future.
+    const uint64_t now = hrt_absolute_time();
     const matrix::Quatf q{attitude_target.q_d};
     const matrix::Eulerf rpy{q};
     const float orientation[3] = {rpy(0), rpy(1), rpy(2)};
@@ -171,9 +174,7 @@ class PsoControl final : public ModuleBase<PsoControl>,
       reason = 1;
     }
 
-    pso_allocation_s incoming{};
-
-    if (allocations.update(&incoming) && enabled) {
+    if (allocation_updated && enabled) {
       if (incoming.protocol_version == 1 &&
           vtol_pso::fresh(incoming.timestamp_remote, now) &&
           incoming.timestamp_remote > last_state) {
